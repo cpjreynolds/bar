@@ -1,0 +1,16 @@
+[package]
+name = "bar"
+version = "0.1.0"
+authors = ["Cole Reynolds <cpjreynolds@gmail.com>"]
+
+[lib]
+name = "bar"
+path = "src/bar/lib.rs"
+
+[dependencies]
+toml = "*"
+rustc-serialize = "*"
+libc = "*"
+docopt = "*"
+term = "*"
+

@@ -1,0 +1,15 @@
+language: rust
+
+rust:
+    - nightly
+    - beta
+    - stable
+
+cache:
+    directories:
+        - target
+
+script:
+    - cargo build --verbose
+    - cargo test --verbose
+
