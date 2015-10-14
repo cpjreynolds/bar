@@ -3,14 +3,18 @@ name = "bar"
 version = "0.1.0"
 authors = ["Cole Reynolds <cpjreynolds@gmail.com>"]
 
+[[bin]]
+name = "bar"
+path = "src/main.rs"
+
 [lib]
 name = "bar"
 path = "src/bar/lib.rs"
 
 [dependencies]
-toml = "*"
-rustc-serialize = "*"
-libc = "*"
-docopt = "*"
-term = "*"
+toml = "0.1"
+rustc-serialize = "0.3"
+libc = "0.1"
+docopt = "0.6"
+term = "0.2
 
