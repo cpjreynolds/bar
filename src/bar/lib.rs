@@ -7,6 +7,7 @@ extern crate docopt;
 extern crate toml;
 extern crate term;
 extern crate rustc_serialize;
+extern crate collections;
 
 mod bar;
 pub use self::bar::Bar;

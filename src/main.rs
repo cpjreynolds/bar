@@ -11,18 +11,14 @@ use std::io::{
 use bar::pipe;
 use bar::{
     Bar,
-    Element,
     Position,
-    Align,
 };
 use bar::util::Result;
 use bar::util::Config;
 use bar::data::{
     Provider,
-    WindowManager,
-    Desktop,
     System,
-    Battery,
+    WindowManager,
 };
 
 static USAGE: &'static str = "
@@ -62,37 +58,12 @@ fn execute(args: Args) -> Result<()> {
 
     let mut bar = try!(Bar::new(&wr_pipe, &args));
 
-    let e0 = Element(0);
-    let e1 = Element(0);
-    let e2 = Element(0);
-    let e3 = Element(0);
-    let e4 = Element(0);
-
-    let p0 = Position::new(Align::Left, 0);
-    let p1 = Position::new(Align::Left, 3);
-    let p2 = Position::new(Align::Center, 2);
-    let p3 = Position::new(Align::Right, 0);
-    let p4 = Position::new(Align::Right, 1);
-
-    bar.insert_elt(p0, e0);
-    bar.insert_elt(p1, e1);
-    bar.insert_elt(p2, e2);
-    bar.insert_elt(p3, e3);
-    bar.insert_elt(p4, e4);
-
-    for elt in bar.iter_left() {
-        println!("{:?}", elt);
-    }
-
     let mut sys = try!(System::new(&wr_pipe));
     let mut wm = try!(WindowManager::new(&wr_pipe));
-    let output = bar.stdin();
     let input = BufReader::new(rd_pipe);
 
     for line in input.lines() {
         let line = try!(line);
-
-        let mut outbuf = Vec::new();
 
         if wm.is_data(&line) {
             wm.consume(&line);
@@ -101,15 +72,14 @@ fn execute(args: Args) -> Result<()> {
         }
 
         // Date.
-        try!(sys.datetime.write_into(&mut outbuf));
+        bar.register(Position::right(), &sys.datetime);
 
         // Battery.
-        try!(sys.bat.write_into(&mut outbuf));
+        bar.register(Position::left(), &sys.bat);
 
-        try!(wm.write_into(&mut outbuf));
+        bar.register(Position::center(), &wm);
 
-        outbuf.push(b'\n');
-        try!(output.write(&outbuf));
+        try!(bar.flush());
     }
     Ok(())
 }

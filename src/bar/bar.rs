@@ -1,12 +1,13 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::Bound;
-use std::collections::btree_map::Range;
 use std::process::{
     Command,
     Stdio,
     ChildStdin,
 };
+use std::io::prelude::*;
+use std::io::BufWriter;
 
 use pipe::PipeWriter;
 use util::{
@@ -15,8 +16,8 @@ use util::{
 };
 
 pub struct Bar {
-    stdin: ChildStdin,
-    elts: BTreeMap<Position, Element>,
+    stdin: BufWriter<ChildStdin>,
+    elts: BTreeMap<Position, Vec<u8>>,
 }
 
 impl Bar {
@@ -33,38 +34,51 @@ impl Bar {
         let stdin = try!(bar.stdin.ok_or(Error::new("failed to grab `lemonbar` stdin")));
 
         Ok(Bar {
-            stdin: stdin,
+            stdin: BufWriter::new(stdin),
             elts: BTreeMap::new(),
         })
     }
 
-    pub fn stdin(&mut self) -> &mut ChildStdin {
-        &mut self.stdin
+    pub fn register<E>(&mut self, pos: Position, elt: &E)
+        where E: Element
+    {
+        self.elts.insert(pos, elt.fmt());
     }
 
-    pub fn insert_elt(&mut self, pos: Position, elt: Element) {
-        self.elts.insert(pos, elt);
-    }
-
-    pub fn remove_elt(&mut self, pos: Position) {
+    pub fn deregister(&mut self, pos: Position) {
         self.elts.remove(&pos);
     }
 
-    pub fn iter_left(&mut self) -> Range<Position, Element> {
-        let ref end = Position {
-            align: Align::Center,
-            slot: 0,
-        };
-        self.elts.range(Bound::Unbounded, Bound::Excluded(end))
+    pub fn flush(&mut self) -> Result<()> {
+        // Left.
+        try!(self.stdin.write_all(b"%{l}"));
+        for (_, elt) in self.elts.range(Bound::Unbounded, Bound::Excluded(&Position::center())) {
+            try!(self.stdin.write_all(elt));
+        }
+
+        // Center.
+        try!(self.stdin.write_all(b"%{c}"));
+        for (_, elt) in self.elts.range(Bound::Included(&Position::center()),
+                                        Bound::Excluded(&Position::right()))
+        {
+            try!(self.stdin.write_all(elt));
+        }
+
+        // Right.
+        try!(self.stdin.write_all(b"%{r}"));
+        for (_, elt) in self.elts.range(Bound::Included(&Position::right()), Bound::Unbounded) {
+            try!(self.stdin.write_all(elt));
+        }
+
+        try!(self.stdin.write_all(b"\n"));
+        try!(self.stdin.flush());
+        Ok(())
     }
 }
 
-pub trait ToElement {
-    fn to_elt(&self) -> Element;
+pub trait Element {
+    fn fmt(&self) -> Vec<u8>;
 }
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct Element(pub usize);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
@@ -80,12 +94,42 @@ impl Position {
         }
     }
 
+    pub fn left() -> Position {
+        Position {
+            align: Align::Left,
+            slot: 0,
+        }
+    }
+
+    pub fn center() -> Position {
+        Position {
+            align: Align::Center,
+            slot: 0,
+        }
+    }
+
+    pub fn right() -> Position {
+        Position {
+            align: Align::Right,
+            slot: 0,
+        }
+    }
+
+    // Slots are from left to right.
     pub fn slot(&self) -> usize {
         self.slot
     }
 
+    pub fn set_slot(&mut self, slot: usize) {
+        self.slot = slot;
+    }
+
     pub fn align(&self) -> Align {
         self.align
+    }
+
+    pub fn set_align(&mut self, align: Align) {
+        self.align = align;
     }
 
     pub fn is_left(&self) -> bool {
@@ -127,7 +171,8 @@ pub enum Align {
     Right,
 }
 
-#[derive(Debug)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Color {
      Base03 = 0x002b36,
      Base02 = 0x073642,
@@ -146,4 +191,5 @@ pub enum Color {
      Cyan = 0x2aa198,
      Green = 0x859900,
 }
+
 

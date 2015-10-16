@@ -1,11 +1,11 @@
 use std::process::{
     Command,
-    Child,
     Stdio,
 };
 use std::collections::HashMap;
-use std::io::Write;
 
+use bar::Color;
+use bar::Element;
 use pipe::PipeWriter;
 use util::{
     Result,
@@ -38,15 +38,15 @@ impl WindowManager {
             dtops: Vec::new(),
         })
     }
+}
 
-    pub fn write_into<W>(&self, w: &mut W) -> Result<()>
-        where W: Write
-    {
-        try!(w.write("%{c}".as_bytes()));
+impl Element for WindowManager {
+    fn fmt(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
         for d in &self.dtops {
-            try!(d.write_into(w))
+            buf.extend(d.fmt().into_iter());
         }
-        Ok(())
+        buf
     }
 }
 
@@ -108,21 +108,19 @@ impl Desktop {
     pub fn is_occupied(&self) -> bool {
         self.occupied
     }
+}
 
-    pub fn write_into<W>(&self, w: &mut W) -> Result<()>
-        where W: Write
-    {
+impl Element for Desktop {
+    fn fmt(&self) -> Vec<u8> {
         if self.focused && self.occupied {
-            try!(w.write("%{F#6c71c4} \u{f111} %{F-}".as_bytes()));
+            format!("%{{F#{:x}}} \u{f111} %{{F-}}", Color::Violet as u32).into_bytes()
         } else if self.focused {
-            try!(w.write("%{F#6c71c4} \u{f10c} %{F-}".as_bytes()));
+            format!("%{{F#{:x}}} \u{f10c} %{{F-}}", Color::Violet as u32).into_bytes()
         } else if self.occupied {
-            try!(w.write(" \u{f111} ".as_bytes()));
+            format!(" \u{f111} ").into_bytes()
         } else {
-            try!(w.write(" \u{f10c} ".as_bytes()));
+            format!(" \u{f10c} ").into_bytes()
         }
-
-        Ok(())
     }
 }
 
@@ -139,16 +137,9 @@ pub struct DateTime {
     time: String,
 }
 
-impl DateTime {
-    pub fn write_into<W>(&self, w: &mut W) -> Result<()>
-        where W: Write
-    {
-        try!(w.write("%{r}\u{f073} ".as_bytes()));
-        try!(w.write(self.date.as_bytes()));
-        try!(w.write("  \u{f017} ".as_bytes()));
-        try!(w.write(self.time.as_bytes()));
-        try!(w.write(b" "));
-        Ok(())
+impl Element for DateTime {
+    fn fmt(&self) -> Vec<u8> {
+        format!("\u{f073} {}  \u{f017} {} ", self.date, self.time).into_bytes()
     }
 }
 
@@ -177,17 +168,6 @@ impl Battery {
         "\u{f240}",
     ];
 
-    pub fn write_into<W>(&self, w: &mut W) -> Result<()>
-        where W: Write
-    {
-        try!(w.write("%{l T4}  ".as_bytes()));
-        try!(w.write(self.icon().as_bytes()));
-        try!(w.write(b"%{T-} "));
-        try!(w.write(self.pct.as_bytes()));
-        try!(w.write("%%".as_bytes()));
-        Ok(())
-    }
-
     fn pct_val(&self) -> usize {
         self.pct.parse().unwrap()
     }
@@ -205,6 +185,12 @@ impl Battery {
         } else {
             Battery::ICON[0]
         }
+    }
+}
+
+impl Element for Battery {
+    fn fmt(&self) -> Vec<u8> {
+        format!("%{{T4}}  {}%{{T-}} {}%%", self.icon(), self.pct).into_bytes()
     }
 }
 
