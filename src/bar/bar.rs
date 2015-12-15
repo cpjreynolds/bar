@@ -1,3 +1,6 @@
+use std::char;
+use std::str;
+use std::fmt;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::Bound;
@@ -7,7 +10,9 @@ use std::process::{
     ChildStdin,
 };
 use std::io::prelude::*;
-use std::io::BufWriter;
+use std::io::{
+    BufWriter,
+};
 
 use pipe::PipeWriter;
 use util::{
@@ -39,10 +44,15 @@ impl Bar {
         })
     }
 
-    pub fn register<E>(&mut self, pos: Position, elt: &E)
-        where E: Element
+    pub fn register<T>(&mut self, pos: Position, elt: &T)
+        where T: Format
     {
-        self.elts.insert(pos, elt.fmt());
+        let mut buf = Vec::new();
+        {
+            let mut fmtr = Formatter { buf: &mut buf };
+            elt.fmt(&mut fmtr);
+        }
+        self.elts.insert(pos, buf);
     }
 
     pub fn deregister(&mut self, pos: Position) {
@@ -76,8 +86,35 @@ impl Bar {
     }
 }
 
-pub trait Element {
-    fn fmt(&self) -> Vec<u8>;
+pub trait Format {
+    fn fmt(&self, &mut Formatter) -> Result<()>;
+}
+
+impl Format for str {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<()> {
+        try!(fmt.buf.write(self.as_bytes()));
+        Ok(())
+    }
+}
+
+impl Format for char {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<()> {
+        let mut utf8 = [0u8; 4];
+        let n = self.encode_utf8(&mut utf8).unwrap_or(0);
+        fmt.write(unsafe { str::from_utf8_unchecked(&utf8[..n]) })
+    }
+}
+
+pub struct Formatter<'a> {
+    buf: &'a mut (Write+'a),
+}
+
+impl<'a> Formatter<'a> {
+    pub fn write<T: ?Sized>(&mut self, source: &T) -> Result<()>
+        where T: Format
+    {
+        source.fmt(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,16 +157,18 @@ impl Position {
         self.slot
     }
 
-    pub fn set_slot(&mut self, slot: usize) {
+    pub fn set_slot(&mut self, slot: usize) -> &mut Position {
         self.slot = slot;
+        self
     }
 
     pub fn align(&self) -> Align {
         self.align
     }
 
-    pub fn set_align(&mut self, align: Align) {
+    pub fn set_align(&mut self, align: Align) -> &mut Position {
         self.align = align;
+        self
     }
 
     pub fn is_left(&self) -> bool {
@@ -171,25 +210,111 @@ pub enum Align {
     Right,
 }
 
+impl Format for Align {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<()> {
+        let align = match *self {
+            Align::Left => "%{l}",
+            Align::Center => "%{c}",
+            Align::Right => "%{r}",
+        };
+        fmt.write(align)
+    }
+}
+
+pub struct Styled<T> {
+    inner: T,
+    fg: Color,
+    bg: Color,
+}
+
+impl<T> Styled<T>
+    where T: Format
+{
+    pub fn set_fg(&mut self, fg: Color) -> &mut Self {
+        self.fg = fg;
+        self
+    }
+
+    pub fn set_bg(&mut self, bg: Color) -> &mut Self {
+        self.bg = bg;
+        self
+    }
+}
+
+impl<T> From<T> for Styled<T>
+    where T: Format
+{
+    fn from(inner: T) -> Styled<T> {
+        Styled {
+            inner: inner,
+            fg: Color::Default,
+            bg: Color::Default,
+        }
+    }
+}
+
+impl<T> Format for Styled<T>
+    where T: Format
+{
+    fn fmt(&self, fmt: &mut Formatter) -> Result<()> {
+        let start = format!("%{{F{} B{}}}", self.fg, self.bg);
+        let end = "%{F- B-}";
+
+        try!(fmt.write(&*start));
+        try!(fmt.write(&self.inner));
+        try!(fmt.write(end));
+        Ok(())
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Color {
-     Base03 = 0x002b36,
-     Base02 = 0x073642,
-     Base01 = 0x586e75,
-     Base00 = 0x657b83,
-     Base0 = 0x839496,
-     Base1 = 0x93a1a1,
-     Base2 = 0xeee8d5,
-     Base3 = 0xfdf6e3,
-     Yellow = 0xb58900,
-     Orange = 0xcb4b16,
-     Red = 0xdc322f,
-     Magenta = 0xd33682,
-     Violet = 0x6c71c4,
-     Blue = 0x268bd2,
-     Cyan = 0x2aa198,
-     Green = 0x859900,
+    Default,
+    Base03 = 0x002b36,
+    Base02 = 0x073642,
+    Base01 = 0x586e75,
+    Base00 = 0x657b83,
+    Base0 = 0x839496,
+    Base1 = 0x93a1a1,
+    Base2 = 0xeee8d5,
+    Base3 = 0xfdf6e3,
+    Yellow = 0xb58900,
+    Orange = 0xcb4b16,
+    Red = 0xdc322f,
+    Magenta = 0xd33682,
+    Violet = 0x6c71c4,
+    Blue = 0x268bd2,
+    Cyan = 0x2aa198,
+    Green = 0x859900,
 }
 
+impl fmt::Display for Color {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        if *self == Color::Default {
+            fmt.write_str("-")
+        } else {
+            fmt.write_str(&format!("{:x}", *self as u32))
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Icon {
+    DotOn = 0xf3a6,
+    DotOff = 0xf3a7,
+    BatEmpty = 0xf112,
+    BatLow = 0xf115,
+    BatHalf = 0xf114,
+    BatFull = 0xf113,
+    BatCharging = 0xf111,
+}
+
+impl Format for Icon {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<()> {
+        let c = try!(char::from_u32(*self as u32).ok_or(Error::new("internal char error")));
+        fmt.write(&c)
+    }
+}
 

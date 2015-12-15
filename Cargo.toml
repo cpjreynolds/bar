@@ -2,6 +2,7 @@
 name = "bar"
 version = "0.1.0"
 authors = ["Cole Reynolds <cpjreynolds@gmail.com>"]
+licence = "MIT"
 
 [[bin]]
 name = "bar"
@@ -14,7 +15,7 @@ path = "src/bar/lib.rs"
 [dependencies]
 toml = "0.1"
 rustc-serialize = "0.3"
-libc = "0.1"
+libc = "0.2"
 docopt = "0.6"
 term = "0.2"
 

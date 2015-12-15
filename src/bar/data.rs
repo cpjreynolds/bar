@@ -2,10 +2,13 @@ use std::process::{
     Command,
     Stdio,
 };
-use std::collections::HashMap;
 
-use bar::Color;
-use bar::Element;
+use bar::{
+    Color,
+    Format,
+    Formatter,
+    Icon,
+};
 use pipe::PipeWriter;
 use util::{
     Result,
@@ -40,13 +43,12 @@ impl WindowManager {
     }
 }
 
-impl Element for WindowManager {
-    fn fmt(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
+impl Format for WindowManager {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<()> {
         for d in &self.dtops {
-            buf.extend(d.fmt().into_iter());
+            try!(fmt.write(d))
         }
-        buf
+        Ok(())
     }
 }
 
@@ -110,36 +112,36 @@ impl Desktop {
     }
 }
 
-impl Element for Desktop {
-    fn fmt(&self) -> Vec<u8> {
+impl Format for Desktop {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<()> {
         if self.focused && self.occupied {
-            format!("%{{F#{:x}}} \u{f111} %{{F-}}", Color::Violet as u32).into_bytes()
+            fmt.write(&*format!("%{{F#{:x}}} \u{f3a7} %{{F-}}", Color::Violet as u32))
         } else if self.focused {
-            format!("%{{F#{:x}}} \u{f10c} %{{F-}}", Color::Violet as u32).into_bytes()
+            fmt.write(&*format!("%{{F#{:x}}} \u{f3a6} %{{F-}}", Color::Violet as u32))
         } else if self.occupied {
-            format!(" \u{f111} ").into_bytes()
+            fmt.write(&*format!(" \u{f3a7} "))
         } else {
-            format!(" \u{f10c} ").into_bytes()
+            fmt.write(&*format!(" \u{f3a6} "))
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct System {
-    pub stats: HashMap<String, String>,
     pub bat: Battery,
     pub datetime: DateTime,
+    pub cpu: Cpu,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DateTime {
     date: String,
     time: String,
 }
 
-impl Element for DateTime {
-    fn fmt(&self) -> Vec<u8> {
-        format!("\u{f073} {}  \u{f017} {} ", self.date, self.time).into_bytes()
+impl Format for DateTime {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<()> {
+        fmt.write(&*format!("{} {} ", self.date, self.time))
     }
 }
 
@@ -152,52 +154,23 @@ impl Default for DateTime {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Battery {
-    pct: String,
+    pct: usize,
     pub time: String,
     pub status: BatStatus,
 }
 
-impl Battery {
-    const ICON: &'static [&'static str] = &[
-        "\u{f244}",
-        "\u{f243}",
-        "\u{f242}",
-        "\u{f241}",
-        "\u{f240}",
-    ];
-
-    fn pct_val(&self) -> usize {
-        self.pct.parse().unwrap()
-    }
-
-    fn icon(&self) -> &'static str {
-        let pct = self.pct_val();
-        if pct > 75 {
-            Battery::ICON[4]
-        } else if pct > 50 {
-            Battery::ICON[3]
-        } else if pct > 25 {
-            Battery::ICON[2]
-        } else if pct > 10 {
-            Battery::ICON[1]
-        } else {
-            Battery::ICON[0]
-        }
-    }
-}
-
-impl Element for Battery {
-    fn fmt(&self) -> Vec<u8> {
-        format!("%{{T4}}  {}%{{T-}} {}%%", self.icon(), self.pct).into_bytes()
+impl Format for Battery {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<()> {
+        fmt.write(&*format!(" bat: {:03}", self.pct))
     }
 }
 
 impl Default for Battery {
     fn default() -> Battery {
         Battery {
-            pct: String::from("0"),
+            pct: 0,
             time: String::from("0:00"),
             status: BatStatus::Unknown,
         }
@@ -225,6 +198,33 @@ impl From<char> for BatStatus {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Cpu {
+    temp: usize,
+    freq: [f32; 4],
+    usage: [usize; 4],
+}
+
+impl Format for Cpu {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<()> {
+        fmt.write(&*format!(" temp: {:03} freq: {:.2}/{:.2}/{:.2}/{:.2} use: {:03}/{:03}/{:03}/{:03}",
+                self.temp,
+                self.freq[0], self.freq[1], self.freq[2], self.freq[3],
+                self.usage[0], self.usage[1], self.usage[2], self.usage[3],
+                ))
+    }
+}
+
+impl Default for Cpu {
+    fn default() -> Cpu {
+        Cpu {
+            temp: 0,
+            freq: [0.0; 4],
+            usage: [0; 4],
+        }
+    }
+}
+
 impl System {
     pub fn new(output: &PipeWriter) -> Result<System> {
         let outpipe = try!(output.stdio());
@@ -237,15 +237,16 @@ impl System {
             .map_err(|err| Error::from(err)));
 
         Ok(System {
-            stats: HashMap::new(),
             bat: Battery::default(),
             datetime: DateTime::default(),
+            cpu: Cpu::default(),
         })
     }
 }
 
 impl Provider for System {
     fn is_data(&self, data: &str) -> bool {
+        // Any data that doesn't belong to the window manager.
         !data.starts_with("WM")
     }
 
@@ -254,9 +255,8 @@ impl Provider for System {
         let key = data[..mid].trim();
         let val = data[mid+1..].trim();
 
-        let key = String::from(key);
 
-        match &*key {
+        match key {
             "BAT_TIME" => {
                 let time = parse_bat_time(val);
                 self.bat.time = time;
@@ -267,7 +267,7 @@ impl Provider for System {
 
                 let start = val.find(char::is_numeric).unwrap();
                 let end = val.rfind('%').unwrap();
-                self.bat.pct = String::from(val[start..end].trim());
+                self.bat.pct = String::from(val[start..end].trim()).parse().unwrap();
             },
             "TIME" => {
                 self.datetime.time = String::from(val);
@@ -275,10 +275,20 @@ impl Provider for System {
             "DATE" => {
                 self.datetime.date = String::from(val);
             },
-            _ => {
-                let val = String::from(val);
-                self.stats.insert(key, val);
+            "TEMP" => {
+                self.cpu.temp = val.parse().unwrap();
             },
+            "CPU" => {
+                for (i, core) in val.split_whitespace().enumerate().take(4) {
+                    self.cpu.usage[i] = core.parse().unwrap();
+                }
+            },
+            "CPU_FREQ" => {
+                for (i, core) in val.split_whitespace().enumerate().take(4) {
+                    self.cpu.freq[i] = core.parse().unwrap();
+                }
+            },
+            _ => {},
         }
     }
 }
@@ -301,5 +311,3 @@ fn parse_bat_time(data: &str) -> String {
 
     time
 }
-
-

@@ -11,6 +11,7 @@ use std::io::{
 use bar::pipe;
 use bar::{
     Bar,
+    Align,
     Position,
 };
 use bar::util::Result;
@@ -77,6 +78,10 @@ fn execute(args: Args) -> Result<()> {
         // Battery.
         bar.register(Position::left(), &sys.bat);
 
+        // Cpu.
+        bar.register(Position::new(Align::Left, 1), &sys.cpu);
+
+        // Window manager.
         bar.register(Position::center(), &wm);
 
         try!(bar.flush());

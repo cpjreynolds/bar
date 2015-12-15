@@ -1,6 +1,7 @@
 #![feature(box_syntax, box_patterns)]
 #![feature(associated_consts)]
 #![feature(collections, collections_bound, btree_range)]
+#![feature(unicode)]
 
 extern crate libc;
 extern crate docopt;
@@ -12,7 +13,8 @@ extern crate collections;
 mod bar;
 pub use self::bar::Bar;
 pub use self::bar::{
-    Element,
+    Format,
+    Formatter,
     Position,
     Align,
 };

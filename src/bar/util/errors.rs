@@ -5,72 +5,40 @@ use std::io;
 pub type Result<T> = ::std::result::Result<T, Error>;
 
 #[derive(Debug)]
-pub struct Error {
-    desc: String,
-    detail: Vec<String>,
-    cause: Option<Box<StdError>>,
-}
+pub struct Error(Box<StdError + Send + Sync>);
 
 impl Error {
-    pub fn new(desc: &str) -> Error {
-        Error {
-            desc: String::from(desc),
-            detail: Vec::new(),
-            cause: None,
-        }
-    }
-
-    pub fn with_cause<E>(desc: &str, cause: E) -> Error
-        where E: StdError + 'static
+    pub fn new<E>(err: E) -> Error
+        where E: Into<Box<StdError + Send + Sync>>
     {
-        let mut err = Error::new(desc);
-        err.add_detail(cause.description());
-        err.cause = Some(box cause);
-
-        err
-    }
-
-    pub fn add_detail(&mut self, detail: &str) {
-        self.detail.push(String::from(detail));
+        Error(err.into())
     }
 }
 
 impl StdError for Error {
     fn description(&self) -> &str {
-        &self.desc[..]
+        self.0.description()
     }
 
     fn cause(&self) -> Option<&StdError> {
-        if let Some(ref cause) = self.cause {
-            Some(&**cause)
-        } else {
-            None
-        }
+        self.0.cause()
     }
 }
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Error {
-        Error::with_cause("I/O error", err)
+        Error::new(err)
     }
 }
 
 impl From<fmt::Error> for Error {
     fn from(err: fmt::Error) -> Error {
-        let mut error = Error::new("format error");
-        error.add_detail(&format!("{}", err));
-        error
+        Error::new(format!("{}", err))
     }
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(writeln!(f, "{}\n", self.desc));
-
-        for l in &self.detail {
-            try!(writeln!(f, "{}", l));
-        }
-
-        Ok(())
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        self.0.fmt(fmt)
     }
 }
