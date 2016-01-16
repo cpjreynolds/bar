@@ -37,6 +37,11 @@ const FIOCLEX: libc::c_ulong = 0x5451;
               target_arch = "powerpc")))]
 const FIOCLEX: libc::c_ulong = 0x6601;
 
+#[cfg(all(target_os = "linux",
+          any(target_arch = "powerpc64",
+              target_arch = "powerpc64le")))]
+const FIOCLEX: libc::c_ulong = 0x20006601;
+
 #[derive(Debug)]
 pub struct PipeWriter(FileDesc);
 
